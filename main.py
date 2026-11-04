@@ -17,7 +17,16 @@ TF = "5m"
 RISK_REWARD = 2.0
 SCAN_SECONDS = 60
 last_update_id = 0
-last_signal = {}
+SIGNALS_FILE = "signals_seen.json"
+
+def load_signal_history():
+    try:
+        with open(SIGNALS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+last_signal = load_signal_history()
 tracked = {}
 
 def now_pkt():
@@ -104,10 +113,17 @@ def scan():
             s=detect(rows)
             if s:
                 key=f"{s['side']}:{s['time'].isoformat()}"
-                if last_signal.get(market)!=key:
-                    last_signal[market]=key
-                    tracked[market]=s
-                    send(signal_text(market,s))
+                if last_signal.get(market)==key:
+                    continue
+                # Persist before sending to avoid repeats after a restart.
+                last_signal[market]=key
+                try:
+                    with open(SIGNALS_FILE, "w", encoding="utf-8") as f:
+                        json.dump(last_signal, f)
+                except OSError as e:
+                    print("Could not save signal history:", e)
+                tracked[market]=s
+                send(signal_text(market,s))
         except Exception as e:
             print(f"Scan error {market}: {e}")
 
