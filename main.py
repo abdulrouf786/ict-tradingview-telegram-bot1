@@ -158,4 +158,9 @@ def main():
         time.sleep(SCAN_SECONDS)
 
 if __name__=="__main__":
-    main()
+    if os.getenv("GITHUB_ACTIONS", "").lower() == "true":
+        # GitHub scheduled run: scan once and exit; Actions invokes this every 10 minutes.
+        scan()
+    else:
+        # Local/hosted long-running bot: keep Telegram command polling active.
+        main()
