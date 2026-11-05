@@ -65,31 +65,58 @@ def candles(symbol):
     return rows
 
 def detect(rows):
-    if len(rows)<30: return None
-    closed=rows[:-1] # exclude currently-forming candle
-    a,b,d=closed[-3],closed[-2],closed[-1]
-    recent=closed[-23:-3]
-    prior_hi=max(x["high"] for x in recent)
-    prior_lo=min(x["low"] for x in recent)
-    # Bullish sweep, bullish displacement, bullish FVG
-    if a["low"]<prior_lo and a["close"]>prior_lo and b["close"]>b["open"] and b["close"]>a["high"] and d["low"]>a["high"]:
-        entry=d["close"]; sl=min(a["low"],b["low"],d["low"]); risk=entry-sl
-        if risk>0: return {"side":"BUY","entry":entry,"sl":sl,"tp":entry+RISK_REWARD*risk,"time":d["time"]}
-    # Bearish sweep, bearish displacement, bearish FVG
-    if a["high"]>prior_hi and a["close"]<prior_hi and b["close"]<b["open"] and b["close"]<a["low"] and d["high"]<a["low"]:
-        entry=d["close"]; sl=max(a["high"],b["high"],d["high"]); risk=sl-entry
-        if risk>0: return {"side":"SELL","entry":entry,"sl":sl,"tp":entry-RISK_REWARD*risk,"time":d["time"]}
+    """Failed-breakout reversal: sweep range, close back inside, then confirmation."""
+    if len(rows) < 35:
+        return None
+    closed = rows[:-1]  # ignore unfinished candle
+    a, b, d = closed[-3], closed[-2], closed[-1]
+    prior = closed[-27:-3]
+    if len(prior) < 20:
+        return None
+    range_high = max(x["high"] for x in prior)
+    range_low = min(x["low"] for x in prior)
+    avg_range = sum(x["high"] - x["low"] for x in prior) / len(prior)
+    if avg_range <= 0:
+        return None
+
+    # False breakout above range -> bearish reversal confirmation
+    if (a["high"] > range_high and a["close"] > range_high
+        and b["close"] < range_high and b["close"] < b["open"]
+        and d["close"] < d["open"] and d["close"] < b["low"]
+        and (a["high"] - range_high) >= avg_range * 0.05):
+        entry = d["close"]
+        sl = max(a["high"], b["high"], d["high"])
+        risk = sl - entry
+        if risk > 0 and risk / entry < 0.015:
+            return {"side":"SELL","entry":entry,"sl":sl,
+                    "tp":entry-RISK_REWARD*risk,"time":d["time"],
+                    "setup":"Failed Breakout + Back Inside + Bearish Confirmation",
+                    "level":range_high}
+
+    # False breakout below range -> bullish reversal confirmation
+    if (a["low"] < range_low and a["close"] < range_low
+        and b["close"] > range_low and b["close"] > b["open"]
+        and d["close"] > d["open"] and d["close"] > b["high"]
+        and (range_low - a["low"]) >= avg_range * 0.05):
+        entry = d["close"]
+        sl = min(a["low"], b["low"], d["low"])
+        risk = entry - sl
+        if risk > 0 and risk / entry < 0.015:
+            return {"side":"BUY","entry":entry,"sl":sl,
+                    "tp":entry+RISK_REWARD*risk,"time":d["time"],
+                    "setup":"Failed Breakout + Back Inside + Bullish Confirmation",
+                    "level":range_low}
     return None
 
 def price(x): return f"{x:.5f}"
 
 def signal_text(market,s):
     return (f"📡 ICT SCANNER SIGNAL\n\nMarket: {market}\nDirection: {s['side']}\n"
-            f"Setup: Liquidity Sweep + displacement/MSS + FVG\nTimeframe: {TF}\n"
+            f"Setup: Failed Breakout + Back Inside + Confirmation\nTimeframe: {TF}\n"
             f"Signal time: {s['time'].strftime('%Y-%m-%d %I:%M:%S %p PKT')}\n"
             f"Alert sent: {now_pkt()}\n\nEntry: {price(s['entry'])}\n"
             f"TP: {price(s['tp'])}\nSL: {price(s['sl'])}\nRR: 1:{RISK_REWARD}\n\n"
-            "⚠️ Gold uses GC=F futures as a proxy, not spot XAUUSD. Signals are not guaranteed.")
+            "⚠️ Gold uses GC=F futures as a proxy, not spot XAUUSD. No setup is trap-free; demo-test first.")
 
 def monitor(market, trade, latest):
     if trade["side"]=="BUY":
